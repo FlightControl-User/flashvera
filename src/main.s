@@ -41,7 +41,14 @@ flashaddr:
 .include "x16.inc"
 
 main:
+    ; Set ISO mode
+    lda #$0f
+    jsr X16::Kernal::CHROUT
+
     jsr load_bitstream_from_disk
+    bcs fail
+
+    jsr verify_bitstream
     bcs fail
 
     jsr close_j1
@@ -153,6 +160,99 @@ page: ; fill the rest of the page in memory after load with $FF
 bitstream_filename:
     .byte "VERA.BIN"
 bitstream_filename_len = *-bitstream_filename
+.endproc
+
+.proc verify_bitstream
+    lda #1
+    sta X16::Reg::RAMBank
+
+    stz ptr1
+    lda #$A0
+    sta ptr1+1
+
+start:
+    lda (ptr1)
+    cmp #$ff
+    bne check_initial_preamble
+    ldy #1
+    lda (ptr1),y
+    cmp #$00
+    beq :+
+    jmp fail
+:
+    lda ptr1
+    clc
+    adc #2
+    sta ptr1
+    lda ptr1+1
+    adc #0
+    sta ptr1+1
+strings_find_preamble:
+    lda (ptr1)
+    cmp #$7e
+    bne string1
+    ldy #1
+    lda (ptr1),y
+    cmp #$aa
+    bne string1
+    ldy #2
+    lda (ptr1),y
+    cmp #$99
+    bne string1
+    ldy #3
+    lda (ptr1),y
+    cmp #$7e
+    bne string1
+    bra success
+string1:
+    lda (ptr1)
+    beq newline
+    cmp #$20
+    bcc advance
+    cmp #$7F
+    bcs advance
+    jsr X16::Kernal::CHROUT
+advance:
+    inc ptr1
+    bne :+
+    inc ptr1+1
+    lda ptr1+1
+    cmp #$C0
+    bcs fail
+:
+    bra strings_find_preamble
+newline:
+    lda #$0d
+    jsr X16::Kernal::CHROUT
+    bra advance
+check_initial_preamble:
+    lda (ptr1)
+    cmp #$7e
+    bne fail
+    ldy #1
+    lda (ptr1),y
+    cmp #$aa
+    bne fail
+    ldy #2
+    lda (ptr1),y
+    cmp #$99
+    bne fail
+    ldy #3
+    lda (ptr1),y
+    cmp #$7e
+    bne fail
+success:
+    jsr printstring
+    .byte $0D,"BITSTREM SIGNATURE FOUND",$0D,0
+    jsr waitforkey
+    clc
+    rts
+fail:
+    jsr printstring
+    .byte $0D,"NO BITSTREAM SIGNATURE FOUND",$0D,0
+    jsr waitforkey
+    sec
+    rts
 .endproc
 
 .proc printstring
