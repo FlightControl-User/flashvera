@@ -1,0 +1,6 @@
+*.PRG
+obj
+sdcard.img
+*.BIN
+*.map
+*.sym
