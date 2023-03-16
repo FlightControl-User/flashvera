@@ -77,10 +77,6 @@ main:
     .byte $0D,"DONE.",$0D,0
 
 fail:
-    ; Set Upper/PETSCII 
-    lda #$8e
-    jsr X16::Kernal::CHROUT
-
     jsr spi_deselect
     rts
 
