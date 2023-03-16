@@ -2,8 +2,6 @@
 .import spi_deselect
 .import spi_buffer
 .import spi_get_uniq
-.import spi_read_flash_to_bank
-.import spi_read_flash_to_bank_continue
 .import spi_block_erase
 .import spi_write_page_begin
 .import spi_write
@@ -48,6 +46,9 @@ main:
     jsr load_bitstream_from_disk
     bcs fail
 
+    jsr verify_bitstream_size
+    bcs fail
+
     jsr verify_bitstream
     bcs fail
 
@@ -76,6 +77,10 @@ main:
     .byte $0D,"DONE.",$0D,0
 
 fail:
+    ; Set Upper/PETSCII 
+    lda #$8e
+    jsr X16::Kernal::CHROUT
+
     jsr spi_deselect
     rts
 
@@ -162,6 +167,30 @@ bitstream_filename:
 bitstream_filename_len = *-bitstream_filename
 .endproc
 
+.proc verify_bitstream_size
+    lda bitstream_pages+1
+    cmp #$02
+    bcs success
+
+    cmp #$01
+    bcc fail
+
+    lda bitstream_pages
+    cmp #$97
+    bcc fail
+success:
+    jsr printstring
+    .byte $0D,"BITSTREAM SIZE OK",$0D,0
+    clc
+    rts
+fail:
+    jsr printstring
+    .byte $0D,"BITSTREAM SIZE NOT OK (<$197 pages) ",$0D,0
+    jsr waitforkey
+    sec
+    rts
+.endproc
+
 .proc verify_bitstream
     lda #1
     sta X16::Reg::RAMBank
@@ -243,7 +272,7 @@ check_initial_preamble:
     bne fail
 success:
     jsr printstring
-    .byte $0D,"BITSTREM SIGNATURE FOUND",$0D,0
+    .byte $0D,"BITSTREAM SIGNATURE FOUND",$0D,0
     jsr waitforkey
     clc
     rts
@@ -332,37 +361,16 @@ xf_hexify:
     rts
 .endproc
 
-.proc read_flash
-    jsr printstring
-    .byte $0d,"READING FIRST 256K OF FLASH CONTENTS",$0d,0
-
-    lda #1
-    sta X16::Reg::RAMBank
-
-    lda #'.'
-    jsr X16::Kernal::CHROUT
-
-    ldx #$00
-    ldy #$00
-    lda #$00
-    jsr spi_read_flash_to_bank
-
-continueloop:
-    lda #'.'
-    jsr X16::Kernal::CHROUT
-
-    jsr spi_read_flash_to_bank_continue
-    
-    lda X16::Reg::RAMBank
-    cmp #LASTBANK
-    bcc continueloop
-
-    rts
-.endproc
-
 .proc erase_flash
     jsr printstring
-    .byte $0d,"ERASING FLASH FROM 0K-256K IN 64K BLOCKS",$0d,0
+    .byte $0d,"ERASING FLASH IN 64K BLOCKS",$0d,0
+
+    ; ptr1 temporarily contains the number of blocks to erase,
+    ; which is the high byte of the number of pages in the bitstream
+    ; incremented by 1
+    lda bitstream_pages+1
+    inc
+    sta ptr1
 
     stz flashaddr
     stz flashaddr+1
@@ -380,7 +388,7 @@ eraseloop:
 
     inc flashaddr+2
     lda flashaddr+2
-    cmp #$04
+    cmp ptr1
     bcc eraseloop
 
     clc
@@ -595,98 +603,23 @@ fail:
     jsr open_j1
     sec
     rts
-
-romfilename:
-    .byte "@:VERADUMP.BIN,S,W"
 .endproc
 
-
-.proc savedump
-    jsr printstring
-    .byte "SAVING DATA AS VERADUMP.BIN",$0D,0
-    
-    lda #1
-    sta X16::Reg::RAMBank
-    
-    lda #18
-    ldx #<romfilename
-    ldy #>romfilename
-    jsr X16::Kernal::SETNAM
-
-    lda #2
-    ldx #8
-    ldy #2
-    jsr X16::Kernal::SETLFS
-
-    jsr X16::Kernal::OPEN
-    jsr X16::Kernal::READST
-    beq :+
-
-    jsr printstring
-    .byte $0D,"WASN'T ABLE TO OPEN FILE FOR WRITE",$0D,0
-    jsr waitforkey
-    rts
-:
-
-    ldx #2
-    jsr X16::Kernal::CHKOUT
-
-    stz ptr1
-    lda #$A0
-    sta ptr1+1
-
-    ldy #0
-pageloop:
-    lda (ptr1),y
-    jsr X16::Kernal::CHROUT
-    iny
-    bne pageloop
-
-    inc ptr1+1
-    lda ptr1+1
-    cmp #$C0
-    bcc pageloop
-    lda #$A0
-    sta ptr1+1
-    inc X16::Reg::RAMBank
-
-    jsr X16::Kernal::CLRCHN
-
-    lda #'.'
-    jsr X16::Kernal::CHROUT
-
-    ldx #2
-    jsr X16::Kernal::CHKOUT
-
-    ldy #0
-    lda X16::Reg::RAMBank
-    cmp #LASTBANK
-    bcc pageloop
-
-    jsr X16::Kernal::CLRCHN
-
-    lda #2
-    jsr X16::Kernal::CLOSE
-
-    rts
-romfilename:
-    .byte "@:VERADUMP.BIN,S,W"
-.endproc
 
 .proc close_j1
     jsr printstring
-    .byte $0D,"CLOSE VERA J1 JUMPER THEN ",0
+    .byte $0D,"CLOSE VERA JP1 JUMPER HEADER THEN ",0
     jmp waitforkey
 .endproc
 
 .proc open_j1
     jsr printstring
-    .byte $0D,"OPEN VERA J1 JUMPER THEN ",0
+    .byte $0D,"OPEN VERA JP1 THEN ",0
     jmp waitforkey
 .endproc
 
 .proc confirm_flash
     jsr printstring
-    .byte $0D,"PRESS CTRL+C TO ABORT, OR TO PROCEED TO FLASH, ",0
+    .byte $0D,"PRESS CTRL+C TO ABORT, OR TO START FLASHING ",0
     jmp waitforkey
 .endproc
